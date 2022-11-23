@@ -1,9 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from types import SimpleNamespace
-from copy import deepcopy
+from numba import jit
+from State import State
 
 # Configure the system's initial conditions
+@jit(nopython=True)
 def conf_ini(N, boxsize, temper):
     L = int(np.sqrt(N))
 
@@ -51,27 +52,33 @@ def conf_ini(N, boxsize, temper):
     prov = np.sum(vy)
     vy = vy - prov / N
 
-    return SimpleNamespace(
-        **{
-            "x": x,
-            "y": y,
-            "vx": vx,
-            "vy": vy,
-            "ax": ax,
-            "ay": ay,
-            "pot": pot,
-        }
+    return State(x, y, vx, vy, ax, ay, pot)
+
+
+@jit(nopython=True)
+def copy_state(state):
+    return State(
+        state.x.copy(),
+        state.y.copy(),
+        state.vx.copy(),
+        state.vy.copy(),
+        state.ax.copy(),
+        state.ay.copy(),
+        state.pot.copy(),
     )
 
 
 # Add random perturbation to the positions
+@jit(nopython=True)
 def perturbate(state, part_size, amount, boxsize, N):
-    new_state = deepcopy(state)
+    new_state = copy_state(state)
     for i in range(N):
         phi = np.random.uniform(0, 2 * np.pi)
+
         new_state.x[i] = calc_coord(
             new_state.x[i] + np.cos(phi) * part_size * amount, boxsize
         )
+
         new_state.y[i] = calc_coord(
             new_state.y[i] + np.sin(phi) * part_size * amount, boxsize
         )
@@ -80,6 +87,7 @@ def perturbate(state, part_size, amount, boxsize, N):
 
 
 # Calculate the distance between particles i and j
+@jit(nopython=True)
 def calc_dist(i, j, state, boxsize):
     x = state.x
     y = state.y
@@ -95,6 +103,7 @@ def calc_dist(i, j, state, boxsize):
 
 
 # Create the verlet list
+@jit(nopython=True)
 def verlet_list(state, rv, boxsize):
     x = state.x
 
@@ -108,7 +117,7 @@ def verlet_list(state, rv, boxsize):
 
     for i in range(N):
         for j in range(i + 1, N):  # loop over possible neighbors
-            r2, *_ = calc_dist(i, j, state, boxsize)
+            r2, _, _ = calc_dist(i, j, state, boxsize)
 
             if r2 < rv:
                 cont += 1
@@ -120,11 +129,13 @@ def verlet_list(state, rv, boxsize):
 
 
 # Calculate the potential at a distance r
+@jit(nopython=True)
 def lennard_jones_pot(r, depth, part_size):
     return 4 * depth * ((part_size / r) ** (12) - (part_size / r ** (6)))
 
 
 # Calculate the force at a distance r
+@jit(nopython=True)
 def lennard_jones_force(r, xij, yij, depth, part_size):
     f = depth * (48 * part_size ** (12) / r ** (14) - 24 * part_size ** (6) / r ** (8))
     fx = f * xij
@@ -133,11 +144,13 @@ def lennard_jones_force(r, xij, yij, depth, part_size):
 
 
 # Apply periodic boundary conditions
+@jit(nopython=True)
 def calc_coord(dist, boxsize):
     return dist - boxsize * np.rint(dist / boxsize)
 
 
 # Velocity-verlet position step
+@jit(nopython=True)
 def position_step(rt, vt, at, dt, boxsize):
     r_step = rt + dt * vt + dt**2 * at / 2
 
@@ -145,12 +158,14 @@ def position_step(rt, vt, at, dt, boxsize):
 
 
 # Velocity-verlet velocity step
+@jit(nopython=True)
 def velocity_step(vt, at, a_step, dt):
     return vt + dt * (at + a_step) / 2
 
 
+@jit(nopython=True)
 def time_step(state, nviz, viz, dt, boxsize, N, rv, rcut, part_size, depth, mass):
-    old_state = deepcopy(state)
+    old_state = copy_state(state)
 
     # verlet list should only be updated when some particle has
     # enough speed to enter/leave another particle's potential
@@ -223,6 +238,7 @@ def time_step(state, nviz, viz, dt, boxsize, N, rv, rcut, part_size, depth, mass
     return state, nviz, viz
 
 
+@jit(nopython=True)
 def calc_pos_deviation(ref_state, pert_state, N):
     sum = 0
     for i in range(N):
@@ -236,6 +252,7 @@ def calc_pos_deviation(ref_state, pert_state, N):
     return avg_deviation
 
 
+@jit(nopython=True)
 def calc_energy(state, N, mass):
     kin_energy = 0
     pot_energy = 0
